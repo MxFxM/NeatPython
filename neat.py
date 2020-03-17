@@ -27,6 +27,8 @@ nextConnectionNumber = 0  # put this in population?!
 #       => in crossover
 #       => where else?!
 # todo: same with coefficients from species constructor?
+# todo: same with staleness maximum in population killStaleSpecies
+# todo: add mass extinction reason in population natural selection
 
 
 class Species:
@@ -195,10 +197,6 @@ class Population:
         self.generationPlayers = []
         self.species = []
 
-        self.massExtinctionEvent = False
-        self.newStage = False
-        self.populationLife = 0
-
         for n in range(instancesPerGeneration):
             self.population.append(NeatInstance(
                 numberOfInputs, numberOfOutputs))
@@ -207,8 +205,6 @@ class Population:
         self.instancesPerGeneration = instancesPerGeneration
 
     def updateActive(self):
-        self.populationLife = self.populationLife + 1
-
         for instance in self.population:
             if instance.isActive():
                 instance.getInputs()
@@ -224,6 +220,118 @@ class Population:
 
     def setBestInstance(self):
         tempBest = self.species[0].instances[0]
+        tempBest.generation = self.generation
+
+        if tempBest.score > this.bestScore:
+            self.generationPlayers.append(tempBest.clone())
+            print(f"Old best: {self.bestScore}, new best: {tempBest.score}")
+            self.bestScore = tempBest.score
+            self.bestInstance = tempBest.clone()
+
+    def naturalSelection(self):
+        self.speciate()
+        self.calculateFitness()
+        self.sortSpecies()
+
+        if False:  # mass extinction
+            self.massExtinction()
+
+        self.cullSpecies()
+        self.setBestInstance()
+        self.killStaleSpecies()
+        self.killBadSpecies()
+
+        print(
+            f"Generation: {self.generation}, Number of mutations: {len(self.innovationHistory)}, Species: {len(self.species)} <<<<<<<<<<<<<<<<<<<<<<<")
+
+        averageSum = self.getAverageFitnessSum()
+        children = []
+        for species in self.species:
+            children.append(species.champ.clone())
+
+            # -1 because champ is already added
+            numberOfChildren = math.floor(
+                species.averageFitness / averageSum * len(self.population)) - 1
+            for _ in range(numberOfChildren):
+                children.append(species.giveMeBaby(self.innovationHistory))
+
+        while len(children) < len(self.population):
+            children.append(self.species[0].giveMeBaby())
+
+        self.population = []
+        self.population = children.copy()  # does this copy the list?
+
+        self.generation = self.generation + 1
+
+        for instance in self.population:
+            instance.genome.generateNetwork()
+
+    def speciate(self):
+        for speices in self.species:
+            species.instances = []
+
+        for instance in self.population:
+            speciesFound = False
+            for species in self.species:
+                if species.sameSpecies(instance.genome):
+                    species.addToSpecies(instance.genome)
+                    speciesFound = True
+                    break
+            if not speciesFound:
+                self.species.append(Species(instance))
+
+    def calculateFitness(self):
+        for instance in self.population:
+            instance.calculateFitness()
+
+    def sortSpecies(self):
+        for species in self.species:
+            species.sortSpecies()
+
+        temp = []
+        length = len(self.species)
+        while not len(self.species) == 0:
+            maxFitness = 0
+            maxIndex = 0
+            for n, species in enumerate(self.species):
+                if species.bestFitness > maxFitness:
+                    maxFitness = species.bestFitness
+                    maxIndex = n
+            temp.append(self.species[maxIndex])
+            self.species.pop(maxIndex)
+
+        self.species = temp.copy()  # does copy copy the list?
+
+    def killStaleSpecies(self):
+        # does this work?
+        # but i get the idea
+        for n, species in enumerate(self.species.reverse()):
+            if species.staleness >= 15:
+                self.species.pop(n)
+
+    def killBadSpecies(self):
+        averageSum = self.getAverageFitnessSum()
+
+        for n, species in enumerate(self.species.reverse()):
+            if species.averageFitness / averageSum * len(self.population) < 1:
+                self.species.pop(n)  # bye
+
+    def getAverageFitnessSum(self):
+        averageSum = 0
+        for species in self.species:
+            averageSum = averageSum + species.averageFitness()
+        return averageSum
+
+    def cullSpecies(self):
+        for species in self.species:
+            species.cull()
+            species.fitnessSharing()
+            species.setAverage()
+
+    def massExtinction(self):
+        for n, species in enumerate(self.species.reverse()):
+            if n >= 5:
+                self.species.pop(n)
 
 
 class NeatInstance:
@@ -281,7 +389,7 @@ class NeatInstance:
         clone.generation = self.generation
         return clone
 
-    def claculateFitness(self):
+    def calculateFitness(self):
         self.fitness = self.score * self.score
 
     def crossover(self, parent2):
@@ -340,15 +448,15 @@ class Genome:
 
     def feedForward(self, inputValues):
         # output of input nodes are the input values
-        for n in range(len(self.inputs)):
+        for n in range(self.inputs):
             self.nodes[n].outputValue = inputValues[n]
         self.nodes[self.biasNode].outputValue = 1
 
         for net in self.network:
             net.engage()
 
-        outs = []
-        for n in range(len(self.outputs)):
+        outs = [0 for _ in range(self.outputs)]
+        for n in range(self.outputs):
             outs[n] = self.nodes[self.inputs + n].outputValue
 
         # reset all nodes
