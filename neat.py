@@ -47,7 +47,7 @@ class Species:
             # since this is the only instance
             self.bestFitness = instance.fitness
             self.rep = instance.genome.clone()
-            self.champ = instance.cloneForReplay()
+            self.champ = instance.clone()
 
     def sameSpecies(self, genome):
         compatability = 0
@@ -125,7 +125,7 @@ class Species:
             self.staleness = 0
             self.bestFitness = self.instances[0].fitness
             self.rep = self.instances[0].genome.clone()
-            self.champ = self.instances[0].cloneForReplay()
+            self.champ = self.instances[0].clone()
         else:
             self.staleness = self.staleness + 1
 
@@ -229,18 +229,16 @@ class Population:
 class NeatInstance:
     def __init__(self, numberOfInputs, numberOfOutputs):
         self.fitness = 0
-        #self.unadjustedFitness = 0
-        #self.score = 0
+        self.score = 0
         self.generation = 0
         self.active = True
-        # self.lifespan = 0  # how long the player lived for fitness
 
-        # self.vision = [0 for _ in range(numberOfInputs)]  # input values
-        # self.decision = [0 for _ in range(
-        #    numberOfOutputs)]  # output of network
+        self.vision = [0 for _ in range(numberOfInputs)]  # input values
+        self.decision = [0 for _ in range(
+            numberOfOutputs)]  # output of network
 
-        # self.genomeInputs = numberOfInputs
-        # self.genomeOutputs = numberOfOutputs
+        self.genomeInputs = numberOfInputs
+        self.genomeOutputs = numberOfOutputs
 
         self.genome = Genome(numberOfInputs, numberOfOutputs)
 
@@ -248,22 +246,49 @@ class NeatInstance:
         # draw game on sceen?
         pass
 
+    def incereaseScore(self):
+        self.score = self.score + 1
+
     def isActive(self):
         return self.active
 
     def getInputs(self):
         # get inputs from game?
+        # write inputs in self.vision
         pass
 
     def calculate(self):
-        pass
+        self.decision = self.genome.feedForward(self.vision)
 
     def applyOutputs(self):
         # set outputs and step in game?
+        # use self.decision for that
+
+        # this might help
+        # maxValue = 0
+        # maxIndex = 0
+        # for n, output in enumerate(self.decision):
+        #     if output > maxValue:
+        #         maxValue = output
+        #         maxIndex = n
         pass
 
-    def cloneForReplay(self):
-        pass
+    def clone(self):
+        clone = NeatInstance(self.genomeInputs, self.genomeOutputs)
+        clone.genome = self.genome.clone()
+        clone.fitness = self.fitness
+        clone.genome.generateNetwork()
+        clone.generation = self.generation
+        return clone
+
+    def claculateFitness(self):
+        self.fitness = self.score * self.score
+
+    def crossover(self, parent2):
+        child = NeatInstance(self.genomeInputs, self.genomeOutputs)
+        child.genome = self.genome.crossover(parent2.genome)
+        child.genome.generateNetwork()
+        return child
 
 
 class Genome:
