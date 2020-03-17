@@ -26,25 +26,244 @@ nextConnectionNumber = 0  # put this in population?!
 #       => in mutate
 #       => in crossover
 #       => where else?!
+# todo: same with coefficients from species constructor?
 
 
-class Network:
+class Species:
+    def __init__(self, instance=None):
+        self.instances = []
+        self.bestFitness = 0
+        self.champ = None
+        self.averageFitness = 0
+        self.staleness = 0  # generations without improvement
+        self.rep = None
+
+        self.excessCoefficient = 1
+        self.weightDifferenceCoefficient = 0.5
+        self.compatibilityThreshold = 3
+
+        if not instance is None:
+            self.instances.append(instance)
+            # since this is the only instance
+            self.bestFitness = instance.fitness
+            self.rep = instance.genome.clone()
+            self.champ = instance.cloneForReplay()
+
+    def sameSpecies(self, genome):
+        compatability = 0
+        ecxessAndDisjoint = self.getExcessDisjoint(genome, self.rep)
+        averageWeightDifference = self.averageWeightDifference(
+            genome, self.rep)
+
+        largeGenomeNormalizer = len(genome.genes) - 20
+        if largeGenomeNormalizer < 1:
+            largeGenomeNormalizer = 1
+
+        compatability = (self.excessCoefficient * ecxessAndDisjoint / largeGenomeNormalizer) + \
+            (self.weightDifferenceCoefficient * averageWeightDifference)
+
+        if self.compatibilityThreshold > compatability:
+            return True
+        return False
+
+    def addToSpecies(self, instance):
+        self.instances.append(instance)
+
+    def getExcessDisjoint(self, genome1, genome2):
+        matching = 0
+        for gene1 in genome1.genes:
+            for gene2 in genome2.genes:
+                if gene1.innovationNr == gene2.innovationNr:
+                    matching = matching + 1
+                    break
+
+        # number of excess and disjoint
+        return (len(genome1.genes) + len(genome2.genes)) - 2 * matching
+
+    def averageWeightDifference(self, genome1, genome2):
+        if len(genome1.genes) == 0 or len(genome2.genes) == 0:
+            return 0
+
+        matching = 0
+        totalDifference = 0
+
+        for gene1 in genome1.genes:
+            for gene2 in genome2.genes:
+                if gene1.innovationNr == gene2.innovationNr:
+                    matching = matching + 1
+                    totalDifference = totalDifference + \
+                        abs(gene1.weight - gene2.weight)
+                    break
+
+        if matching == 0:
+            return 100  # else divide by 0
+
+        return totalDifference / matching
+
+    def sortSpecies(self):
+        temp = []
+
+        length = len(self.instances)
+        while not len(self.instances) == 0:
+            maxFitness = 0
+            maxIndex = 0
+            for n, instance in enumerate(self.instances):
+                if instance.fitness > maxFitness:
+                    maxFitness = instance.fitness
+                    maxIndex = n
+            temp.append(self.instances[maxIndex])
+            self.instances.pop(maxIndex)
+
+        self.instances = temp.copy()  # does copy copy the list?
+        if len(self.instances) == 0:
+            print("No more instances left?!")
+            self.staleness = 200
+            return
+
+        # new best player?
+        if self.instances[0].fitness > self.bestFitness:
+            self.staleness = 0
+            self.bestFitness = self.instances[0].fitness
+            self.rep = self.instances[0].genome.clone()
+            self.champ = self.instances[0].cloneForReplay()
+        else:
+            self.staleness = self.staleness + 1
+
+    def setAverage(self):
+        sum = 0
+        for instance in self.instances:
+            sum = sum + instance.fitness
+
+        self.averageFitness = sum / len(self.instances)
+
+    def giveMeBaby(self, history):
+        if random.random() < 0.25:  # 25% chance for clone
+            child = self.selectInstance().clone()
+            child.genome.mutate(history)
+            return child
+        else:  # 75% chance for crossover
+            pass
+        # still is else
+        parent1 = self.selectInstance()
+        parent2 = self.selectInstance()
+
+        # order by fitness
+        if parent1.fitness < parent2.fitness:
+            child = parent2.crossover(parent1)
+            child.genome.mutate(history)
+            return child
+        else:
+            pass
+        child = parent1.crossover(parent2)
+        child.genome.mutate(history)
+        return child
+
+    def selectInstance(self):
+        fitnessSum = 0
+        for instance in self.instances:
+            fitnessSum = fitnessSum + instance.fitness
+
+        rand = random.random() * fitnessSum
+        runningSum = 0
+
+        for instance in self.instances:
+            runningSum = runningSum + instance.fitness
+            if runningSum > rand:
+                return instance
+
+        return self.instances[0]
+
+    def cull(self):
+        if len(self.instances) > 2:
+            self.instances = self.instances[:math.floor(
+                len(self.instances) / 2)]
+
+    def fitnessSharing(self):
+        for instance in self.instances:
+            instance.fitness = instance.fitness / len(self.instances)
+
+
+class Population:
+    def __init__(self, instancesPerGeneration, numberOfInputs, numberOfOutputs):
+        self.innovationHistory = []
+        self.population = []
+
+        self.bestInstance = None
+        self.bestScore = 0
+        self.generation = 0
+
+        self.generationPlayers = []
+        self.species = []
+
+        self.massExtinctionEvent = False
+        self.newStage = False
+        self.populationLife = 0
+
+        for n in range(instancesPerGeneration):
+            self.population.append(NeatInstance(
+                numberOfInputs, numberOfOutputs))
+            self.population[-1].genome.generateNetwork()
+            self.population[-1].genome.mutate(self.innovationHistory)
+        self.instancesPerGeneration = instancesPerGeneration
+
+    def updateActive(self):
+        self.populationLife = self.populationLife + 1
+
+        for instance in self.population:
+            if instance.isActive():
+                instance.getInputs()
+                instance.calculate()
+                instance.applyOutputs()
+                instance.show()  # optional
+
+    def done(self):
+        for instance in self.population:
+            if instance.isActive():
+                return False
+        return True
+
+    def setBestInstance(self):
+        tempBest = self.species[0].instances[0]
+
+
+class NeatInstance:
     def __init__(self, numberOfInputs, numberOfOutputs):
         self.fitness = 0
-        self.unadjustedFitness = 0
-        self.score = 0
-        self.gen = 0
-        self.dead = False
-        self.lifespan = 0  # how long the player lived for fitness
+        #self.unadjustedFitness = 0
+        #self.score = 0
+        self.generation = 0
+        self.active = True
+        # self.lifespan = 0  # how long the player lived for fitness
 
-        self.vision = [0 for _ in range(numberOfInputs)]  # input values
-        self.decision = [0 for _ in range(
-            numberOfOutputs)]  # output of network
+        # self.vision = [0 for _ in range(numberOfInputs)]  # input values
+        # self.decision = [0 for _ in range(
+        #    numberOfOutputs)]  # output of network
 
         # self.genomeInputs = numberOfInputs
         # self.genomeOutputs = numberOfOutputs
 
         self.genome = Genome(numberOfInputs, numberOfOutputs)
+
+    def show(self):
+        # draw game on sceen?
+        pass
+
+    def isActive(self):
+        return self.active
+
+    def getInputs(self):
+        # get inputs from game?
+        pass
+
+    def calculate(self):
+        pass
+
+    def applyOutputs(self):
+        # set outputs and step in game?
+        pass
+
+    def cloneForReplay(self):
+        pass
 
 
 class Genome:
@@ -520,11 +739,7 @@ class connectionHistory:
 if __name__ == "__main__":
     print("Running as main")
 
-    net = Network(7, 3)
-    innovationHistory = []
-    net.genome.generateNetwork()
-    for _ in range(100):
-        net.genome.mutate(innovationHistory)
+    pop = Population(10, 7, 3)
 
     while not GAME_QUIT:
 
@@ -537,8 +752,10 @@ if __name__ == "__main__":
                 pass
                 # print(event)
 
-        net.genome.drawGenome(GAMEDISPLAY, 100, 0,
-                              DISPLAY_WIDTH - 200, DISPLAY_HEIGHT)
+        if not pop.done():
+            pop.updateActive()  # play
+        else:
+            pop.naturalSelection()  # genetic algorithm
 
         pygame.display.update()
         CLOCK.tick(60)
